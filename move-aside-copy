@@ -1,0 +1,99 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+
+if( scalar @ARGV != 3 ) {
+	error_fail( "$0 <from> <to> <backup-dir>");
+}
+my( $from, $to, $backup ) = @ARGV;
+
+if( !-d $from ) { error_fail( "$from is not a directory" ); }
+if( !-d $to ) { error_fail( "$to is not a directory" ); }
+if( !-d $backup ) { error_fail( "$backup is not a directory" ); }
+
+# Find the files to copy
+my @files_to_copy = find_files( $from );
+
+# See what files need a backup
+my @files_to_backup = ();
+foreach my $file ( @files_to_copy ) {
+	if( -e "$to/$file" ) {
+		push @files_to_backup, $file;
+	}
+}
+
+# Backup if required
+if( scalar @files_to_backup ) {
+	my $backup_dir = "$backup/".time();
+	mkdir( $backup_dir );
+	copy_files( $from, $backup_dir, @files_to_backup );
+}
+
+# Copy files
+copy_files( $from, $to, @files_to_copy );
+
+exit( 0 );
+
+sub copy_files {
+	my( $from, $to, @files ) = @_;
+
+	foreach my $file ( @files ) {
+		copy_file( "$from/$file", "$to/$file" );
+	}
+}
+
+sub copy_file {
+	my( $from, $to ) = @_;
+
+	my @target_path = split( "/", $to );
+	my $filename = pop @target_path;
+	
+	my @ensure = ();
+	foreach my $dir_part ( @target_path ) {
+		push @ensure, $dir_part;
+		my $dir_full = join( "/", @ensure );
+		if( !-d $dir_full ) {
+			mkdir( $dir_full );
+		}
+	}
+
+	my @args = ("cp", $from, $to );
+	system(@args) == 0
+                    or error_fail( "system @args failed: $?" );
+}
+
+sub error_fail {
+	my( $msg ) = @_;
+
+	print STDERR $msg."\n";
+	exit(1);
+}
+
+sub find_files {
+	my( $dir ) = @_;
+
+	opendir( my $dh, $dir ) || error_fail( "Failed to read directory $dir: $!" );
+	my @files = ();
+	my @dirs = ();
+	while( my $file = readdir( $dh ) ) {
+		next if $file eq ".";
+		next if $file eq "..";
+		if( -d "$dir/$file" ) {
+			push @dirs, $file;
+		} else {
+			push @files, $file;
+		}
+	}
+	closedir( $dh );
+
+	foreach my $subdir ( @dirs ) {
+		my @subfiles = find_files( "$dir/$subdir" );
+		foreach my $subfile ( @subfiles ) {
+			push @files, "$subdir/$subfile";
+		}
+	}
+	return @files;
+}
